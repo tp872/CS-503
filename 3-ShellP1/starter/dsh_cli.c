@@ -44,36 +44,76 @@
  *
  *  See the provided test cases for output expectations.
  */
+command_list_t *parse_commands(char *cmd_line);
+
+void handle_exit() {
+    exit(0);
+}
+
+void handle_dragon() {
+    print_dragon();
+}
+
+void handle_command(char *input) {
+    if (!input || *input == '\0') {
+        printf(CMD_WARN_NO_CMD);
+        return;
+    }
+
+    command_list_t *clist = parse_commands(input); // Explicit declaration prevents implicit warning
+    if (!clist) {
+        printf(CMD_WARN_NO_CMD);
+        return;
+    }
+
+    printf("PARSED COMMAND LINE - TOTAL COMMANDS %d\n", clist->num);
+    for (int i = 0; i < clist->num; i++) {
+        printf("<%d> %s %s\n", i + 1, clist->commands[i].exe, clist->commands[i].args);
+    }
+
+    free(clist);
+}
+
 int main() {
-    char cmd_buff[SH_CMD_MAX];
-    command_list_t clist;
+    char *buffer = NULL;
+    size_t bufsize = 0;
 
     while (1) {
         printf("%s", SH_PROMPT);
 
-        if (fgets(cmd_buff, SH_CMD_MAX, stdin) == NULL) {
-            printf("\n");  
+        ssize_t len = getline(&buffer, &bufsize, stdin);
+        if (len == -1) {
+            printf("\n");
             break;
         }
 
-        cmd_buff[strcspn(cmd_buff, "\n")] = '\0';
+        // Trim trailing newline
+        if (buffer[len - 1] == '\n') buffer[len - 1] = '\0';
 
-        if (strcmp(cmd_buff, EXIT_CMD) == 0) {
-            break;
-        }
+        // Function pointer table for special commands
+        struct {
+            const char *cmd;
+            void (*handler)();
+        } commands[] = {
+            {EXIT_CMD, handle_exit},
+            {"/dragon", handle_dragon},
+            {NULL, NULL}
+        };
 
-        int result = build_cmd_list(cmd_buff, &clist);
-
-        if (result == OK) {
-            printf(CMD_OK_HEADER, clist.num);
-            for (int i = 0; i < clist.num; i++) {
-                printf("<%d> %s %s\n", i + 1, clist.commands[i].exe, clist.commands[i].args);
+        int handled = 0;
+        for (int i = 0; commands[i].cmd; i++) {
+            if (strcmp(buffer, commands[i].cmd) == 0) {
+                commands[i].handler();
+                handled = 1;
+                break;
             }
-        } else if (result == WARN_NO_CMDS) {
-            printf(CMD_WARN_NO_CMD);
-        } else if (result == ERR_TOO_MANY_COMMANDS) {
-            printf(CMD_ERR_PIPE_LIMIT, CMD_MAX);
+        }
+
+        if (!handled) {
+            handle_command(buffer);
         }
     }
 
-    return 0;}
+    free(buffer);
+    return 0;
+}

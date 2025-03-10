@@ -32,44 +32,107 @@
  *  Standard Library Functions You Might Want To Consider Using
  *      memset(), strcmp(), strcpy(), strtok(), strlen(), strchr()
  */
-int build_cmd_list(char *cmd_line, command_list_t *clist)
-{
-    if (cmd_line == NULL || strlen(cmd_line) == 0) {
-        return WARN_NO_CMDS;
+typedef struct command_node {
+    command_t command;
+    struct command_node *next;
+} command_node_t;
+
+command_list_t *parse_commands(char *cmd_line) {
+    if (!cmd_line || *cmd_line == '\0') return NULL;
+
+    command_list_t *clist = malloc(sizeof(command_list_t));
+    clist->num = 0;
+    command_node_t *head = NULL, *tail = NULL;
+
+    char *ptr = cmd_line, *start = cmd_line;
+    while (*ptr) {
+        if (*ptr == '|') {
+            *ptr = '\0';
+            command_node_t *node = malloc(sizeof(command_node_t));
+            sscanf(start, "%s %[^\n]", node->command.exe, node->command.args);
+            node->next = NULL;
+
+            if (!head) head = tail = node;
+            else {
+                tail->next = node;
+                tail = node;
+            }
+
+            clist->num++;
+            start = ptr + 1;
+        }
+        ptr++;
     }
 
-    char *token;
-    char *rest = cmd_line;  
-    clist->num = 0;
+    if (*start) {
+        command_node_t *node = malloc(sizeof(command_node_t));
+        sscanf(start, "%s %[^\n]", node->command.exe, node->command.args);
+        node->next = NULL;
 
-    while ((token = strtok_r(rest, PIPE_STRING, &rest))) {
-        if (clist->num >= CMD_MAX) {
-            return ERR_TOO_MANY_COMMANDS;
-        }
-
-        while (*token == SPACE_CHAR) token++;  
-        char *end = token + strlen(token) - 1;
-        while (end > token && *end == SPACE_CHAR)*end-- = '\0';  
-
-        char *exe = strtok(token, " ");
-        char *args = strtok(NULL, "");  
-
-        if (exe == NULL) {
-            continue;  
-        }
-        
-        strncpy(clist->commands[clist->num].exe, exe, EXE_MAX - 1);
-        clist->commands[clist->num].exe[EXE_MAX - 1] = '\0';
-
-        if (args) {
-            strncpy(clist->commands[clist->num].args, args, ARG_MAX - 1);
-            clist->commands[clist->num].args[ARG_MAX - 1] = '\0';
-        } else {
-            clist->commands[clist->num].args[0] = '\0';  
+        if (!head) head = tail = node;
+        else {
+            tail->next = node;
+            tail = node;
         }
 
         clist->num++;
     }
 
-    return OK;
+    int index = 0;
+    while (head && index < CMD_MAX) {
+        clist->commands[index++] = head->command;
+        command_node_t *temp = head;
+        head = head->next;
+        free(temp);
+    }
+
+    return clist;
 }
+
+void print_dragon() {
+    const char *dragon[] = {
+        "                                                                        @%%%%",
+        "                                                                     %%%%%%",
+        "                                                                    %%%%%%",
+        "                                                                 % %%%%%%%           @",
+        "                                                                %%%%%%%%%%        %%%%%%%",
+        "                                       %%%%%%%  %%%%@         %%%%%%%%%%%%@    %%%%%%  @%%%%",
+        "                                  %%%%%%%%%%%%%%%%%%%%%%      %%%%%%%%%%%%%%%%%%%%%%%%%%%%",
+        "                                %%%%%%%%%%%%%%%%%%%%%%%%%%   %%%%%%%%%%%% %%%%%%%%%%%%%%%",
+        "                               %%%%%%%%%%%%%%%%%%%%%%%%%%%%% %%%%%%%%%%%%%%%%%%%     %%%",
+        "                             %%%%%%%%%%%%%%%%%%%%%%%%%%%%@ @%%%%%%%%%%%%%%%%%%        %%",
+        "                            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% %%%%%%%%%%%%%%%%%%%%%%",
+        "                            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%",
+        "                            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%@%%%%%%@",
+        "      %%%%%%%%@           %%%%%%%%%%%%%%%%        %%%%%%%%%%%%%%%%%%%%%%%%%%      %%",
+        "    %%%%%%%%%%%%%         %%@%%%%%%%%%%%%           %%%%%%%%%%% %%%%%%%%%%%%      @%",
+        "  %%%%%%%%%%   %%%        %%%%%%%%%%%%%%            %%%%%%%%%%%%%%%%%%%%%%%%",
+        " %%%%%%%%%       %         %%%%%%%%%%%%%             %%%%%%%%%%%%@%%%%%%%%%%%",
+        "%%%%%%%%%@                % %%%%%%%%%%%%%            @%%%%%%%%%%%%%%%%%%%%%%%%%",
+        "%%%%%%%%@                 %%@%%%%%%%%%%%%            @%%%%%%%%%%%%%%%%%%%%%%%%%%%%",
+        "%%%%%%%@                   %%%%%%%%%%%%%%%           %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%",
+        "%%%%%%%%%%                  %%%%%%%%%%%%%%%          %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%      %%%%",
+        "%%%%%%%%%@                   @%%%%%%%%%%%%%%         %%%%%%%%%%%%@ %%%% %%%%%%%%%%%%%%%%%   %%%%%%%%",
+        "%%%%%%%%%%                  %%%%%%%%%%%%%%%%%        %%%%%%%%%%%%%      %%%%%%%%%%%%%%%%%% %%%%%%%%%",
+        "%%%%%%%%%@%%@                %%%%%%%%%%%%%%%%@       %%%%%%%%%%%%%%     %%%%%%%%%%%%%%%%%%%%%%%%  %%",
+        " %%%%%%%%%%                  % %%%%%%%%%%%%%%@        %%%%%%%%%%%%%%   %%%%%%%%%%%%%%%%%%%%%%%%%% %%",
+        "  %%%%%%%%%%%%  @           %%%%%%%%%%%%%%%%%%        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  %%%",
+        "   %%%%%%%%%%%%% %%  %  %@ %%%%%%%%%%%%%%%%%%          %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%    %%%",
+        "    %%%%%%%%%%%%%%%%%% %%%%%%%%%%%%%%%%%%%%%%           @%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%    %%%%%%%",
+        "     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%              %%%%%%%%%%%%%%%%%%%%%%%%%%%%        %%%",
+        "      @%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%                  %%%%%%%%%%%%%%%%%%%%%%%%%",
+        "        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%                      %%%%%%%%%%%%%%%%%%%  %%%%%%%",
+        "           %%%%%%%%%%%%%%%%%%%%%%%%%%                           %%%%%%%%%%%%%%%  @%%%%%%%%%",
+        "              %%%%%%%%%%%%%%%%%%%%           @%@%                  @%%%%%%%%%%%%%%%%%%   %%%",
+        "                  %%%%%%%%%%%%%%%        %%%%%%%%%%                    %%%%%%%%%%%%%%%    %",
+        "                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%                      %%%%%%%%%%%%%%",
+        "                %%%%%%%%%%%%%%%%%%%%%%%%%%  %%%% %%%                      %%%%%%%%%%  %%%@",
+        "                     %%%%%%%%%%%%%%%%%%% %%%%%% %%                          %%%%%%%%%%%%%@",
+        "                                                                                 %%%%%%%@"
+    };
+
+    for (size_t i = 0; i < sizeof(dragon) / sizeof(dragon[0]); i++) {
+        printf("%s\n", dragon[i]);
+    }
+}
+    
