@@ -58,27 +58,22 @@ int open_db(char *dbFile, bool should_truncate){
  * 
  *  console:  Does not produce any console I/O used by other functions
  */
-int get_student(int fd, int id, student_t *s){
-    student_t student = {0};
-    off_t offset = (id - MIN_STD_ID) * sizeof(student_t);
+int get_student(int fd, int id, student_t *s)
+{
+    student_t temp;
+    lseek(fd, 0, SEEK_SET);
 
-    if (lseek(fd, offset, SEEK_SET) == -1)
+    while (read(fd, &temp, sizeof(student_t)) == sizeof(student_t))
     {
-        return ERR_DB_FILE;
+        if (temp.id == id)
+        {
+            if (s != NULL) // Prevent segmentation fault
+                *s = temp;
+            return NO_ERROR;
+        }
     }
 
-    ssize_t bytesRead = read(fd, &student, sizeof(student_t));
-    if (bytesRead == -1)
-    {
-        return ERR_DB_FILE;
-    }
-    else if (bytesRead == 0 || memcmp(&student, &EMPTY_STUDENT_RECORD, sizeof(student_t)) == 0)
-    {
-        return SRCH_NOT_FOUND;
-    }
-
-    memcpy(s, &student, sizeof(student_t));
-    return NO_ERROR;
+    return SRCH_NOT_FOUND;
 }
 
 /*
@@ -106,32 +101,27 @@ int get_student(int fd, int id, student_t *s){
  *            M_ERR_DB_WRITE    error writing to db file (adding student)
  *            
  */
-int add_student(int fd, int id, char *fname, char *lname, int gpa){
-    student_t student = {0};
+int add_student(int fd, int id, char *fname, char *lname, int gpa)
+{
+    student_t temp;
+    lseek(fd, 0, SEEK_SET);
 
-    if (get_student(fd, id, &student) == NO_ERROR)
+    // Search for an empty slot
+    while (read(fd, &temp, sizeof(student_t)) == sizeof(student_t))
     {
-        printf(M_ERR_DB_ADD_DUP, student.id);  
-        return ERR_DB_OP;
+        if (temp.id == 0) // Found a deleted record, reuse it
+        {
+            lseek(fd, -sizeof(student_t), SEEK_CUR);
+            break;
+        }
     }
 
-    student.id = id;
-    strncpy(student.fname, fname, sizeof(student.fname));
-    strncpy(student.lname, lname, sizeof(student.lname));
-    student.gpa = gpa;
+    student_t new_entry = {id, "", "", gpa};
+    strncpy(new_entry.fname, fname, sizeof(new_entry.fname) - 1);
+    strncpy(new_entry.lname, lname, sizeof(new_entry.lname) - 1);
 
-    off_t offset = (id - MIN_STD_ID) * sizeof(student_t);
-
-    if (lseek(fd, offset, SEEK_SET) == -1)
-    {
+    if (write(fd, &new_entry, sizeof(student_t)) != sizeof(student_t))
         return ERR_DB_FILE;
-    }
-
-    ssize_t bytesWritten = write(fd, &student, sizeof(student_t));
-    if (bytesWritten == -1)
-    {
-        return ERR_DB_FILE;
-    }
 
     printf(M_STD_ADDED, id);
     return NO_ERROR;
@@ -159,33 +149,27 @@ int add_student(int fd, int id, char *fname, char *lname, int gpa){
  *            M_ERR_DB_WRITE     error writing to db file (adding student)
  *            
  */
-int del_student(int fd, int id){
-    student_t student = {0};
+int del_student(int fd, int id)
+{
+    student_t temp;
+    lseek(fd, 0, SEEK_SET);
 
-    int rc = get_student(fd, id, &student);
-    if (rc != NO_ERROR)
+    while (read(fd, &temp, sizeof(student_t)) == sizeof(student_t))
     {
-        printf(M_STD_NOT_FND_MSG, id);
-        return ERR_DB_OP;
+        if (temp.id == id)
+        {
+            student_t empty = {0}; // Clear the record
+            lseek(fd, -sizeof(student_t), SEEK_CUR);
+            if (write(fd, &empty, sizeof(student_t)) != sizeof(student_t))
+                return ERR_DB_FILE;
+
+            printf(M_STD_DEL_MSG, id);
+            return NO_ERROR;
+        }
     }
 
-    memset(&student, 0, sizeof(student_t));
-
-    off_t offset = (id - MIN_STD_ID) * sizeof(student_t);
-
-    if (lseek(fd, offset, SEEK_SET) == -1)
-    {
-        return ERR_DB_FILE;
-    }
-
-    ssize_t bytesWritten = write(fd, &student, sizeof(student_t));
-    if (bytesWritten == -1)
-    {
-        return ERR_DB_FILE;
-    }
-
-    printf(M_STD_DEL_MSG, student.id);    
-    return NO_ERROR;
+    printf(M_STD_NOT_FND_MSG, id);
+    return ERR_DB_OP;
 }
 
 /*
@@ -212,27 +196,19 @@ int del_student(int fd, int id){
  *            M_ERR_DB_WRITE   error writing to db file (adding student)
  *            
  */
-int count_db_records(int fd){
-    student_t student = {0};
+int count_db_records(int fd)
+{
+    student_t temp;
     int count = 0;
 
-    while (read(fd, &student, sizeof(student_t)) > 0)
+    lseek(fd, 0, SEEK_SET);
+    while (read(fd, &temp, sizeof(student_t)) == sizeof(student_t))
     {
-        if (memcmp(&student, &EMPTY_STUDENT_RECORD, sizeof(student_t)) != 0)
-        {
+        if (temp.id != 0) // Ignore deleted records
             count++;
-        }
     }
 
-    if (count == 0)
-    {
-        printf(M_DB_EMPTY);
-    }
-    else
-    {
-        printf(M_DB_RECORD_CNT, count);
-    }
-
+    printf(count ? M_DB_RECORD_CNT : M_DB_EMPTY, count);
     return count;
 }
 
@@ -269,26 +245,30 @@ int count_db_records(int fd){
  *            M_ERR_DB_READ    error reading or seeking the database file
  *            
  */
-int print_db(int fd){
-    student_t student = {0};
-    int count = 0;
+int print_db(int fd)
+{
+    student_t temp;
+    int found = 0;
 
+    // Move file cursor to start
+    lseek(fd, 0, SEEK_SET);
+
+    // Print header exactly as expected
     printf(STUDENT_PRINT_HDR_STRING, "ID", "FIRST_NAME", "LAST_NAME", "GPA");
 
-    while (read(fd, &student, sizeof(student_t)) > 0)
+    while (read(fd, &temp, sizeof(student_t)) == sizeof(student_t))
     {
-        if (memcmp(&student, &EMPTY_STUDENT_RECORD, sizeof(student_t)) != 0)
+        if (temp.id != 0) // Ignore deleted/empty records
         {
-            float gpa = student.gpa / 100.0;
-            printf(STUDENT_PRINT_FMT_STRING, student.id, student.fname, student.lname, gpa);
-            count++;
+            printf(STUDENT_PRINT_FMT_STRING, temp.id, temp.fname, temp.lname, (float)temp.gpa / 100.0);
+            found = 1;
         }
     }
 
-    if (count == 0)
-    {
-        printf(M_DB_EMPTY);
-    }
+    // If no valid records found, print "database empty" message
+    if (!found)
+        printf("%s", M_DB_EMPTY);
+
     return NO_ERROR;
 }
 
@@ -320,15 +300,16 @@ int print_db(int fd){
  *                             s->id is zero
  *            
  */
-void print_student(student_t *s){
-    if (s == NULL || s -> id == 0)
+void print_student(student_t *s)
+{
+    if (!s || s->id == 0)
     {
-        printf(M_ERR_STD_PRINT);
+        printf("%s\n", M_ERR_STD_PRINT);
         return;
     }
-    printf(STUDENT_PRINT_HDR_STRING, "ID", "FIRST NAME", "LAST_NAME", "GPA");
-    float gpa = s -> gpa / 100.0;
-    printf(STUDENT_PRINT_FMT_STRING, s->id, s->fname, s->lname, gpa);
+
+    printf(STUDENT_PRINT_HDR_STRING, "ID", "FIRST NAME", "LAST NAME", "GPA");
+    printf(STUDENT_PRINT_FMT_STRING, s->id, s->fname, s->lname, (float)s->gpa / 100.0);
 }
 
 /*
@@ -379,27 +360,27 @@ void print_student(student_t *s){
  *            M_ERR_DB_WRITE   error writing to db or tempdb file (adding student)
  *            
  */
-int compress_db(int fd){
-        
-    int temp_fd = open(TMP_DB_FILE, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-    if (temp_fd == -1) {
+int compress_db(int fd)
+{
+    int temp_fd = open(TMP_DB_FILE, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+    if (temp_fd == -1)
+    {
         printf(M_ERR_DB_OPEN);
         return ERR_DB_FILE;
     }
 
-    student_t student;
+    student_t temp;
     lseek(fd, 0, SEEK_SET);
-    while (read(fd, &student, sizeof(student_t)) > 0) {
-        if (memcmp(&student, &EMPTY_STUDENT_RECORD, sizeof(student_t)) != 0) {
-            write(temp_fd, &student, sizeof(student_t));
-        }
+
+    while (read(fd, &temp, sizeof(student_t)) == sizeof(student_t))
+    {
+        if (temp.id != 0)
+            write(temp_fd, &temp, sizeof(student_t));
     }
 
     close(fd);
     rename(TMP_DB_FILE, DB_FILE);
-    temp_fd = open(DB_FILE, O_RDWR, S_IRUSR | S_IWUSR);
-
-    return temp_fd;
+    return open(DB_FILE, O_RDWR, S_IRUSR | S_IWUSR);
 }
 
 
@@ -464,7 +445,6 @@ int main(int argc, char *argv[]){
     //space for a student structure which we will get back from
     //some of the functions we will be writing such as get_student(),
     //and print_student(). 
-    student_t student = {0};
 
     //This function must have at least one arg, and the arg must start
     //with a dash
@@ -552,35 +532,33 @@ int main(int argc, char *argv[]){
 
             break;
 
-        case 'f':
-            //    arv[0] arv[1]  arv[2]    
-            //prog_name     -f      id
-            //-------------------------
-            //example:  prog_name -f 100       
-            if (argc != 3){
+            case 'f':
+            if (argc != 3)
+            {
                 usage(argv[0]);
-                exit_code = EXIT_FAIL_ARGS;
-                break;
+                exit(EXIT_FAIL_ARGS);
             }
+        
             id = atoi(argv[2]);
-            rc = get_student(fd, id, &student);
-
-           
-            switch (rc){
-                case NO_ERROR:
-                    print_student(&student);
-                    break;
-                case SRCH_NOT_FOUND:
-                    printf(M_STD_NOT_FND_MSG, id);
-                    exit_code = EXIT_FAIL_DB;
-                    break;
-                default:
-                    printf(M_ERR_DB_READ);
-                    exit_code = EXIT_FAIL_DB;
-                    break;
+            student_t student;  // Now declared inside the correct scope
+            int rc = get_student(fd, id, &student);
+        
+            if (rc == NO_ERROR)
+            {
+                print_student(&student);
+            }
+            else if (rc == SRCH_NOT_FOUND)
+            {
+                printf(M_STD_NOT_FND_MSG, id);
+                exit(EXIT_FAIL_DB);
+            }
+            else
+            {
+                printf(M_ERR_DB_READ);
+                exit(EXIT_FAIL_DB);
             }
             break;
-
+        
         case 'p':
             //    arv[0] arv[1]    
             //prog_name     -p 
